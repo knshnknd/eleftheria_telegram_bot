@@ -104,7 +104,8 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
                     Long lastBotId = getLastCreatedBotId(chatId);
                     if (lastBotId != null) {
                         botCreationService.setPersonal(lastBotId, chatId);
-                        sendMessage(chatId, "Ура! Бот создан и будет присылать сообщения Вам лично.");
+                        sendMessage(chatId, "Ура! Бот создан и будет присылать сообщения Вам лично." +
+                                "\n\nЧтобы отвечать пользователю, просто напишите сообщение с <b>ответом (реплаем)</b> на сообщение.");
                     }
                     removeKeyboard(chatId, messageId);
                 }
@@ -174,7 +175,8 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
 
         } else if ("ОЖИДАЮ ADMIN_CHAT_ID".equals(client.getFabric_status())) {
             botCreationService.setAdminChatId(chatId, text);
-            sendMessage(chatId, "Ура! Теперь бот активен и сообщения будут приходить в чат " + text);
+            sendMessage(chatId, "Ура! Теперь бот активен и сообщения будут приходить в чат " + text
+                    + ".\n\nЧтобы отвечать пользователю, просто напишите сообщение с <b>ответом (реплаем)</b> на сообщение.");
         }
     }
 
