@@ -100,9 +100,9 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
                     .orElse(null);
 
             String caption = message.getCaption() != null ? message.getCaption() : "";
-            textToAdmin = userChatId + " " + firstName + " sent a photo";
+            textToAdmin = userChatId + " " + firstName + " прислал(а) картинку";
             if (!caption.isEmpty()) {
-                textToAdmin += " with caption: " + caption;
+                textToAdmin += " с текстом: " + caption;
             }
             forwardPhotoToAdmin(biggest, textToAdmin);
         } else if (message.hasText()) {
@@ -122,30 +122,51 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             replyText = repliedMessage.getCaption();
         }
         if (replyText == null) {
-            log.warn("Admin reply does not contain text for extracting user ID.");
+            log.warn("Ответ администратора не содержит текста для извлечения ID пользователя.");
             return;
         }
 
         String[] parts = replyText.split(" ", 2);
         if (parts.length < 1) {
-            log.warn("Invalid original message format, missing user ID.");
+            log.warn("Неверный формат исходного сообщения, отсутствует ID пользователя.");
             return;
         }
         String potentialUserChatId = parts[0].trim();
         if (!potentialUserChatId.matches("-?\\d+")) {
-            log.warn("Failed to extract valid chatId from message.");
+            log.warn("Не удалось извлечь корректный chatId из сообщения.");
             return;
         }
 
-        String answerFromAdmin = adminMessage.getText();
-        if (answerFromAdmin == null || answerFromAdmin.isEmpty()) {
-            if (adminMessage.hasPhoto()) {
-                answerFromAdmin = "Admin sent a photo.";
-            } else {
-                answerFromAdmin = "[Empty admin message]";
-            }
+        if (adminMessage.hasPhoto()) {
+            List<PhotoSize> photos = adminMessage.getPhoto();
+            PhotoSize biggest = photos.stream()
+                    .max(Comparator.comparing(PhotoSize::getFileSize))
+                    .orElse(null);
+            String caption = adminMessage.getCaption() != null ? adminMessage.getCaption() : "";
+            sendPhotoToUser(potentialUserChatId, biggest, caption);
+        } else if (adminMessage.hasText()) {
+            String answerFromAdmin = adminMessage.getText();
+            sendMessageToUser(potentialUserChatId, answerFromAdmin);
+        } else {
+            log.warn("Неподдерживаемый тип ответа от администратора.");
         }
-        sendMessageToUser(potentialUserChatId, answerFromAdmin);
+    }
+
+    private void sendPhotoToUser(String userChatId, PhotoSize photo, String caption) {
+        if (photo == null) {
+            log.warn("Фото отсутствует, не могу отправить сообщение.");
+            return;
+        }
+        try {
+            SendPhoto sendPhoto = SendPhoto.builder()
+                    .chatId(userChatId)
+                    .photo(new InputFile(photo.getFileId()))
+                    .caption(caption)
+                    .build();
+            tgClient.execute(sendPhoto);
+        } catch (TelegramApiException e) {
+            notifyTechChat("Ошибка при отправке фото клиенту: " + e.getMessage());
+        }
     }
 
     private void sendMessageToAdmin(String text, Integer unusedReplyToMessageId) {
