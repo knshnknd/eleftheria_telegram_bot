@@ -1,0 +1,12 @@
+spring.application.name=eleftheria
+
+bot.token=
+bot.tech-chat-id=
+
+spring.datasource.url=jdbc:postgresql://localhost:5432/databaseName
+spring.datasource.username=
+spring.datasource.password=
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=false
