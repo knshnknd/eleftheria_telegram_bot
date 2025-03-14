@@ -1,7 +1,5 @@
 spring.application.name=eleftheria
 
-bot.token=
-bot.tech-chat-id=
 
 spring.datasource.url=jdbc:postgresql://localhost:5432/databaseName
 spring.datasource.username=

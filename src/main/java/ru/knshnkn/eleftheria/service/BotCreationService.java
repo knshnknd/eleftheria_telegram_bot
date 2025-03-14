@@ -9,7 +9,9 @@ import ru.knshnkn.eleftheria.jpa.repository.BotRepository;
 import ru.knshnkn.eleftheria.jpa.repository.ClientRepository;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +20,10 @@ public class BotCreationService {
     private final ClientRepository clientRepository;
     private final BotRepository botRepository;
     private final UserBotService userBotService;
+
+    private static final List<String> ADJECTIVES = Arrays.asList("Смелый", "Умный", "Быстрый", "Могучий", "Тихий", "Грозный");
+    private static final List<String> NOUNS = Arrays.asList("Орёл", "Тигр", "Волк", "Лев", "Медведь", "Барс");
+    private static final Random RANDOM = new Random();
 
     @Transactional
     public void startCreationProcess(EleftheriaBot bot, String chatId) {
@@ -38,6 +44,17 @@ public class BotCreationService {
         bot.sendMessage(chatId, "Пришлите токен бота в ответном сообщении. Отменить: /cancel.");
     }
 
+    private String generateUniqueRandomName() {
+        String randomName;
+        do {
+            String adjective = ADJECTIVES.get(RANDOM.nextInt(ADJECTIVES.size()));
+            String noun = NOUNS.get(RANDOM.nextInt(NOUNS.size()));
+            int number = RANDOM.nextInt(1000);
+            randomName = adjective + " " + noun + " " + number;
+        } while(botRepository.existsByRandomName(randomName));
+        return randomName;
+    }
+
     @Transactional
     public void saveTokenAndStartBot(String chatId, String token) {
         Client client = clientRepository.findById(chatId).orElseThrow();
@@ -50,6 +67,8 @@ public class BotCreationService {
         bot.setStatus("CREATED");
         bot.setCreated_at(LocalDateTime.now());
         bot.setUpdated_at(LocalDateTime.now());
+        String randomName = generateUniqueRandomName();
+        bot.setRandomName(randomName);
         botRepository.save(bot);
 
         userBotService.startUserBot(bot);

@@ -19,6 +19,7 @@ public class BotEntity {
     private String admin_chat_id;
     private String status;
     private String start_message;
+    private String randomName;
     private LocalDateTime created_at;
     private LocalDateTime updated_at;
     private LocalDateTime last_activity_at;

@@ -23,7 +23,7 @@ public class EleftheriaApplication {
         EleftheriaBot bot = context.getBean("eleftheriaBot", EleftheriaBot.class);
         try {
             TelegramBotsLongPollingApplication botsApplication = new TelegramBotsLongPollingApplication();
-            botsApplication.registerBot(botConfiguration.getToken(), bot);
+            botsApplication.registerBot(BotConfiguration.token, bot);
             bot.notifyTechChat("Bot started.");
         } catch (TelegramApiException ex) {
             LOGGER.error("Error registering bot.", ex);

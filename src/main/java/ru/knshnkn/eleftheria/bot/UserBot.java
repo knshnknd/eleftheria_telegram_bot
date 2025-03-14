@@ -56,6 +56,8 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
                 Message message = update.getMessage();
                 if (message.hasText() && message.getText().equals("/chat_id")) {
                     sendMessageToAdmin(message.getChatId().toString(), null);
+                } else if (message.hasText() && message.getText().equals("/start")) {
+                    sendMessageToUser(message.getChatId().toString(), "Привет! Напишите сообщение прямо в чат, и мы ответим.");
                 } else {
                     handleMessage(message);
                 }

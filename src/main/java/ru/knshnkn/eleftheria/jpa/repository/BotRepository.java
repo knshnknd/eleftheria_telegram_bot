@@ -8,4 +8,5 @@ import java.util.List;
 public interface BotRepository extends JpaRepository<BotEntity, Long> {
     List<BotEntity> findByCreatorChatId(String creatorChatId);
     List<BotEntity> findByStatusIn(List<String> statuses);
+    boolean existsByRandomName(String randomName);
 }

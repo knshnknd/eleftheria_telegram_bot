@@ -20,7 +20,9 @@ import ru.knshnkn.eleftheria.jpa.entity.Client;
 import ru.knshnkn.eleftheria.jpa.repository.BotRepository;
 import ru.knshnkn.eleftheria.jpa.repository.ClientRepository;
 import ru.knshnkn.eleftheria.service.BotCreationService;
+import ru.knshnkn.eleftheria.service.UserBotService;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -28,18 +30,22 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(EleftheriaBot.class);
 
-    private final BotConfiguration botConfiguration = new BotConfiguration();
-
-    private final TelegramClient tgClient = new OkHttpTelegramClient(botConfiguration.getToken());
-
     private final ClientRepository clientRepository;
     private final BotRepository botRepository;
     private final BotCreationService botCreationService;
+    private final UserBotService userBotService;
 
-    public EleftheriaBot(ClientRepository clientRepository, BotRepository botRepository, BotCreationService botCreationService) {
+    private final TelegramClient tgClient = new OkHttpTelegramClient(BotConfiguration.token);
+
+    public EleftheriaBot(ClientRepository clientRepository,
+                         BotRepository botRepository,
+                         BotCreationService botCreationService,
+                         UserBotService userBotService
+    ) {
         this.clientRepository = clientRepository;
         this.botRepository = botRepository;
         this.botCreationService = botCreationService;
+        this.userBotService = userBotService;
     }
 
     @Override
@@ -78,41 +84,70 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
     private void handleCallbackQuery(CallbackQuery callbackQuery) {
         String callData = callbackQuery.getData();
         String chatId = callbackQuery.getMessage().getChatId().toString();
-        User user = callbackQuery.getFrom();
+        int messageId = callbackQuery.getMessage().getMessageId();
 
         try {
             switch (callData) {
-                case "CREATE_BOT":
+                case "CREATE_BOT" -> {
                     botCreationService.startCreationProcess(this, chatId);
-                    break;
-                case "MY_BOTS":
+                    removeKeyboard(chatId, messageId);
+                }
+                case "MY_BOTS" -> {
                     showUserBots(chatId);
-                    break;
-                case "GOBACK":
+                    removeKeyboard(chatId, messageId);
+                }
+                case "GOBACK" -> {
                     showStartMenu(chatId);
-                    break;
-                case "CHOOSE_PERSONAL":
+                    removeKeyboard(chatId, messageId);
+                }
+                case "CHOOSE_PERSONAL" -> {
                     Long lastBotId = getLastCreatedBotId(chatId);
                     if (lastBotId != null) {
                         botCreationService.setPersonal(lastBotId, chatId);
                         sendMessage(chatId, "Ура! Бот создан и будет присылать сообщения Вам лично.");
                     }
-                    break;
-                case "CHOOSE_CHAT":
+                    removeKeyboard(chatId, messageId);
+                }
+                case "CHOOSE_CHAT" -> {
                     botCreationService.waitForAdminChatId(chatId);
                     sendMessage(chatId, "Добавьте созданного бота в ваш админский чат. " +
                             "Там введите /chat_id, скопируйте ответ и пришлите этот ChatID сюда. Отменить: /cancel.");
-                    break;
-                default:
-                    break;
+                    removeKeyboard(chatId, messageId);
+                }
+                default -> {
+                    if (callData.startsWith("SHOW_BOT_")) {
+                        removeKeyboard(chatId, messageId);
+
+                        String botIdStr = callData.substring("SHOW_BOT_".length());
+                        Long botId = Long.valueOf(botIdStr);
+                        BotEntity bot = botRepository.findById(botId).orElse(null);
+                        if (bot != null) {
+                            showBotDetails(chatId, bot);
+                        } else {
+                            sendMessage(chatId, "Бот не найден.");
+                        }
+                    } else if (callData.startsWith("DELETE_BOT_")) {
+                        String botIdStr = callData.substring("DELETE_BOT_".length());
+                        Long botId = Long.valueOf(botIdStr);
+                        BotEntity bot = botRepository.findById(botId).orElse(null);
+                        if (bot != null) {
+                            userBotService.stopUserBot(bot);
+                            botRepository.delete(bot);
+
+                            removeKeyboard(chatId, messageId);
+
+                            sendMessage(chatId, "Бот удалён.");
+                            showStartMenu(chatId);
+                        } else {
+                            sendMessage(chatId, "Бот не найден.");
+                        }
+                    }
+                }
             }
         } catch (Exception e) {
             notifyTechChat("Error processing callback.", e);
             sendMessage(chatId, "Unknown error.");
         }
-
-        int previousMessageId = callbackQuery.getMessage().getMessageId();
-        removeKeyboard(chatId, previousMessageId);
     }
 
     // REGISTER ////
@@ -143,6 +178,8 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
         }
     }
 
+    // MENU
+
     private void showStartMenu(String chatId) {
         List<InlineKeyboardRow> keyboard = List.of(
                 new InlineKeyboardRow(
@@ -159,24 +196,61 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
         List<BotEntity> bots = botRepository.findByCreatorChatId(chatId);
         if (bots.isEmpty()) {
             sendMessage(chatId, "У Вас пока нет ботов.");
-        } else {
-            StringBuilder sb = new StringBuilder("Ваши боты:\n");
-            for (BotEntity bot : bots) {
-                sb.append("• ID=").append(bot.getId())
-                        .append(", токен=").append(bot.getToken())
-                        .append(", статус=").append(bot.getStatus())
-                        .append("\n");
-            }
-
-            List<InlineKeyboardRow> keyboard = List.of(
-                    new InlineKeyboardRow(
-                            List.of(
-                                    InlineKeyboardButton.builder().text("Назад").callbackData("GOBACK").build()
-                            )
-                    )
-            );
-            sendMessageWithInlineKeyboard(chatId, sb.toString(), keyboard);
+            return;
         }
+
+        sendMessage(chatId, "У вас ботов: " + bots.size() + ".");
+
+        List<InlineKeyboardRow> keyboardRows = new ArrayList<>();
+        for (BotEntity bot : bots) {
+            InlineKeyboardButton btn = InlineKeyboardButton.builder()
+                    .text(bot.getRandomName())
+                    .callbackData("SHOW_BOT_" + bot.getId())
+                    .build();
+
+            InlineKeyboardRow row = new InlineKeyboardRow();
+            row.add(btn);
+            keyboardRows.add(row);
+        }
+
+        InlineKeyboardButton backBtn = InlineKeyboardButton.builder()
+                .text("Назад")
+                .callbackData("GOBACK")
+                .build();
+        InlineKeyboardRow backRow = new InlineKeyboardRow();
+        backRow.add(backBtn);
+        keyboardRows.add(backRow);
+
+        sendMessageWithInlineKeyboard(chatId, "Выберите бота, чтобы посмотреть детали:", keyboardRows);
+    }
+
+    private void showBotDetails(String chatId, BotEntity bot) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Бот: ").append(bot.getRandomName()).append("\n");
+        sb.append("Статус: ").append(bot.getStatus()).append("\n");
+        sb.append("Токен: ").append(bot.getToken()).append("\n");
+
+        List<InlineKeyboardRow> keyboardRows = new ArrayList<>();
+
+        InlineKeyboardButton deleteBtn = InlineKeyboardButton.builder()
+                .text("УДАЛИТЬ")
+                .callbackData("DELETE_BOT_" + bot.getId())
+                .build();
+
+        InlineKeyboardButton menuBtn = InlineKeyboardButton.builder()
+                .text("В меню")
+                .callbackData("GOBACK")
+                .build();
+
+        InlineKeyboardRow row1 = new InlineKeyboardRow();
+        row1.add(deleteBtn);
+        keyboardRows.add(row1);
+
+        InlineKeyboardRow row2 = new InlineKeyboardRow();
+        row2.add(menuBtn);
+        keyboardRows.add(row2);
+
+        sendMessageWithInlineKeyboard(chatId, sb.toString(), keyboardRows);
     }
 
     private Long getLastCreatedBotId(String chatId) {
@@ -217,6 +291,7 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
         SendMessage message = SendMessage.builder()
                 .chatId(chatId)
                 .text(text)
+                .parseMode("HTML")
                 .replyMarkup(markup)
                 .build();
         try {
@@ -228,7 +303,6 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
 
     public void removeKeyboard(String chatId, Integer messageId) {
         EditMessageReplyMarkup editMarkup = new EditMessageReplyMarkup();
-
         editMarkup.setChatId(chatId);
         editMarkup.setMessageId(messageId);
         editMarkup.setReplyMarkup(null);
@@ -250,7 +324,7 @@ public class EleftheriaBot implements LongPollingSingleThreadUpdateConsumer {
         try {
             String errorBrief = (exception != null && exception.getMessage() != null) ? exception.getMessage() : "Unknown error";
             String techMessage = "⚠️  " + message + (exception != null ? "\n\nError: " + errorBrief : "");
-            sendMessage(botConfiguration.getTechChatId(), techMessage);
+            sendMessage(BotConfiguration.techChatId, techMessage);
         } catch (Exception e) {
             LOGGER.error("Error sending technical error notification: ", e);
         }
