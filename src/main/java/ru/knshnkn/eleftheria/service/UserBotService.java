@@ -9,6 +9,7 @@ import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.knshnkn.eleftheria.bot.UserBot;
 import ru.knshnkn.eleftheria.jpa.entity.BotEntity;
+import ru.knshnkn.eleftheria.jpa.repository.BanListRepository;
 import ru.knshnkn.eleftheria.jpa.repository.BotRepository;
 
 @Service
@@ -18,6 +19,7 @@ public class UserBotService {
     private static final Logger LOGGER = LoggerFactory.getLogger(UserBotService.class);
 
     private final BotRepository botRepository;
+    private final BanListRepository banListRepository;
 
     private static final TelegramBotsLongPollingApplication userBotsApplication = new TelegramBotsLongPollingApplication();
 
@@ -27,7 +29,7 @@ public class UserBotService {
             LOGGER.info("Starting bot for user={}, botId={}, token={}",
                     bot.getCreatorChatId(), bot.getId(), bot.getToken());
 
-            UserBot userBot = new UserBot(bot.getId(), bot.getToken(), botRepository);
+            UserBot userBot = new UserBot(bot.getId(), bot.getToken(), botRepository, banListRepository);
             userBotsApplication.registerBot(bot.getToken(), userBot);
 
         } catch (TelegramApiException ex) {

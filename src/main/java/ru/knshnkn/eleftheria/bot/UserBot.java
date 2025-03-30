@@ -12,8 +12,11 @@ import org.telegram.telegrambots.meta.api.objects.message.Message;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
+import ru.knshnkn.eleftheria.jpa.entity.BanList;
 import ru.knshnkn.eleftheria.jpa.entity.BotEntity;
+import ru.knshnkn.eleftheria.jpa.repository.BanListRepository;
 import ru.knshnkn.eleftheria.jpa.repository.BotRepository;
+import ru.knshnkn.eleftheria.service.SpamProtectionService;
 
 import java.util.Comparator;
 import java.util.List;
@@ -23,26 +26,33 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
     private static final Logger log = LoggerFactory.getLogger(UserBot.class);
 
     private final BotRepository botRepository;
-    private final Long id;
+    private final BanListRepository banListRepository;
+    private final Long botId;
     public final String botToken;
     private String adminId;
     private String adminChatId;
     public final TelegramClient tgClient;
 
-    public UserBot(Long id, String token, BotRepository botRepository) {
-        this.id = id;
+    private final SpamProtectionService spamProtectionService = new SpamProtectionService();
+
+    public UserBot(Long botId,
+                   String token,
+                   BotRepository botRepository,
+                   BanListRepository banListRepository) {
+        this.botId = botId;
         this.botToken = token;
         this.botRepository = botRepository;
+        this.banListRepository = banListRepository;
         this.tgClient = new OkHttpTelegramClient(token);
 
         loadBotSettingsFromDb();
     }
 
     private void loadBotSettingsFromDb() {
-        if (id == null || id <= 0) {
+        if (botId == null || botId <= 0) {
             return;
         }
-        BotEntity be = botRepository.findById(id).orElse(null);
+        BotEntity be = botRepository.findById(botId).orElse(null);
         if (be != null) {
             this.adminChatId = be.getAdmin_chat_id();
             this.adminId = be.getCreatorChatId();
@@ -54,10 +64,12 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         try {
             if (update.hasMessage()) {
                 Message message = update.getMessage();
+
                 if (message.hasText() && message.getText().equals("/chat_id")) {
-                    sendMessageToAdmin(message.getChatId().toString(), null);
+                    sendMessageToUser(message.getChatId().toString(), message.getChatId().toString());
                 } else if (message.hasText() && message.getText().equals("/start")) {
-                    sendMessageToUser(message.getChatId().toString(), "Здравствуйте! Напишите сообщение прямо в чат, и мы ответим.");
+                    sendMessageToUser(message.getChatId().toString(),
+                            "Здравствуйте! Напишите сообщение прямо в чат, и мы ответим.");
                 } else {
                     loadBotSettingsFromDb();
                     handleMessage(message);
@@ -67,6 +79,7 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             log.error("Error in consume method: ", e);
         }
     }
+
 
     private void handleMessage(Message message) {
         String fromChatId = message.getChatId().toString();
@@ -90,9 +103,23 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
 
     private void processClientMessage(Message message) {
         String userChatId = message.getChatId().toString();
-        String firstName = (message.getFrom() != null) ? message.getFrom().getFirstName() : "noName";
 
+        if (banListRepository.existsByBotIdAndChatId(botId, userChatId)) {
+            return;
+        }
+        if (spamProtectionService.isMuted(userChatId)) {
+            return;
+        }
+
+        spamProtectionService.recordMessage(userChatId);
+        if (spamProtectionService.isSpam(userChatId)) {
+            spamProtectionService.mute(userChatId);
+            return;
+        }
+
+        String firstName = (message.getFrom() != null) ? message.getFrom().getFirstName() : "noName";
         String textToAdmin;
+
         if (message.hasPhoto()) {
             List<PhotoSize> photos = message.getPhoto();
             PhotoSize biggest = photos.stream()
@@ -110,12 +137,15 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             textToAdmin = userChatId + " " + firstName + ": " + text;
             sendMessageToAdmin(textToAdmin, null);
         } else {
-            log.info("Received message of unknown type from user: " + userChatId);
+            log.info("Received message of unknown type from user: {}", userChatId);
         }
     }
 
     private void processAdminReply(Message adminMessage) {
         Message repliedMessage = adminMessage.getReplyToMessage();
+        if (repliedMessage == null) {
+            return;
+        }
 
         String replyText = repliedMessage.getText();
         if (replyText == null) {
@@ -125,7 +155,6 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             log.warn("Ответ администратора не содержит текста для извлечения ID пользователя.");
             return;
         }
-
         String[] parts = replyText.split(" ", 2);
         if (parts.length < 1) {
             log.warn("Неверный формат исходного сообщения, отсутствует ID пользователя.");
@@ -133,8 +162,22 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         }
         String potentialUserChatId = parts[0].trim();
         if (!potentialUserChatId.matches("-?\\d+")) {
-            log.warn("Не удалось извлечь корректный chatId из сообщения.");
+            log.warn("Не удалось извлечь корректный chatId из сообщения: {}", potentialUserChatId);
             return;
+        }
+
+        String adminText = adminMessage.getText();
+        if (adminText != null) {
+            String normalized = adminText.toLowerCase().trim();
+            if (normalized.equals("!ban")) {
+                banUser(potentialUserChatId);
+                sendMessageToAdmin("Пользователь " + potentialUserChatId + " забанен.", null);
+                return;
+            } else if (normalized.contains("!unbun")) {
+                unbanUser(potentialUserChatId);
+                sendMessageToAdmin("Пользователь " + potentialUserChatId + " разбанен.", null);
+                return;
+            }
         }
 
         if (adminMessage.hasPhoto()) {
@@ -152,9 +195,22 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         }
     }
 
+    private void banUser(String userChatId) {
+        if (!banListRepository.existsByBotIdAndChatId(botId, userChatId)) {
+            BanList banEntry = new BanList();
+            banEntry.setBotId(botId);
+            banEntry.setChatId(userChatId);
+            banListRepository.save(banEntry);
+        }
+    }
+
+    private void unbanUser(String userChatId) {
+        banListRepository.deleteByBotIdAndChatId(botId, userChatId);
+    }
+
     private void sendPhotoToUser(String userChatId, PhotoSize photo, String caption) {
         if (photo == null) {
-            log.warn("Фото отсутствует, не могу отправить сообщение.");
+            log.warn("Фото отсутствует, не могу отправить сообщение пользователю {}.", userChatId);
             return;
         }
         try {
