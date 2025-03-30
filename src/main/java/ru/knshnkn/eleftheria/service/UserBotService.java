@@ -20,6 +20,7 @@ public class UserBotService {
 
     private final BotRepository botRepository;
     private final BanListRepository banListRepository;
+    private final BanService banService;
 
     private static final TelegramBotsLongPollingApplication userBotsApplication = new TelegramBotsLongPollingApplication();
 
@@ -29,7 +30,7 @@ public class UserBotService {
             LOGGER.info("Starting bot for user={}, botId={}, token={}",
                     bot.getCreatorChatId(), bot.getId(), bot.getToken());
 
-            UserBot userBot = new UserBot(bot.getId(), bot.getToken(), botRepository, banListRepository);
+            UserBot userBot = new UserBot(bot.getId(), bot.getToken(), botRepository, banListRepository, banService);
             userBotsApplication.registerBot(bot.getToken(), userBot);
 
         } catch (TelegramApiException ex) {

@@ -12,10 +12,10 @@ import org.telegram.telegrambots.meta.api.objects.message.Message;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
-import ru.knshnkn.eleftheria.jpa.entity.BanList;
 import ru.knshnkn.eleftheria.jpa.entity.BotEntity;
 import ru.knshnkn.eleftheria.jpa.repository.BanListRepository;
 import ru.knshnkn.eleftheria.jpa.repository.BotRepository;
+import ru.knshnkn.eleftheria.service.BanService;
 import ru.knshnkn.eleftheria.service.SpamProtectionService;
 
 import java.util.Comparator;
@@ -27,6 +27,7 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
 
     private final BotRepository botRepository;
     private final BanListRepository banListRepository;
+    private final BanService banService;
     private final Long botId;
     public final String botToken;
     private String adminId;
@@ -38,11 +39,13 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
     public UserBot(Long botId,
                    String token,
                    BotRepository botRepository,
-                   BanListRepository banListRepository) {
+                   BanListRepository banListRepository,
+                   BanService banService) {
         this.botId = botId;
         this.botToken = token;
         this.botRepository = botRepository;
         this.banListRepository = banListRepository;
+        this.banService = banService;
         this.tgClient = new OkHttpTelegramClient(token);
 
         loadBotSettingsFromDb();
@@ -170,11 +173,11 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         if (adminText != null) {
             String normalized = adminText.toLowerCase().trim();
             if (normalized.equals("!ban")) {
-                banUser(potentialUserChatId);
+                banService.banUser(botId, potentialUserChatId);
                 sendMessageToAdmin("Пользователь " + potentialUserChatId + " забанен.", null);
                 return;
-            } else if (normalized.contains("!unbun")) {
-                unbanUser(potentialUserChatId);
+            } else if (normalized.equals("!unban")) {
+                banService.unbanUser(botId, potentialUserChatId);
                 sendMessageToAdmin("Пользователь " + potentialUserChatId + " разбанен.", null);
                 return;
             }
@@ -193,19 +196,6 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         } else {
             log.warn("Неподдерживаемый тип ответа от администратора.");
         }
-    }
-
-    private void banUser(String userChatId) {
-        if (!banListRepository.existsByBotIdAndChatId(botId, userChatId)) {
-            BanList banEntry = new BanList();
-            banEntry.setBotId(botId);
-            banEntry.setChatId(userChatId);
-            banListRepository.save(banEntry);
-        }
-    }
-
-    private void unbanUser(String userChatId) {
-        banListRepository.deleteByBotIdAndChatId(botId, userChatId);
     }
 
     private void sendPhotoToUser(String userChatId, PhotoSize photo, String caption) {
