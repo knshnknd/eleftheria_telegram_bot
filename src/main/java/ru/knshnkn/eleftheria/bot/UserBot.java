@@ -25,6 +25,8 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(UserBot.class);
 
+    private final String HASHTAG = "#u";
+
     private final BotRepository botRepository;
     private final BanListRepository banListRepository;
     private final BanService banService;
@@ -83,7 +85,6 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         }
     }
 
-
     private void handleMessage(Message message) {
         String fromChatId = message.getChatId().toString();
 
@@ -113,7 +114,6 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         if (spamProtectionService.isMuted(userChatId)) {
             return;
         }
-
         spamProtectionService.recordMessage(userChatId);
         if (spamProtectionService.isSpam(userChatId)) {
             spamProtectionService.mute(userChatId);
@@ -121,6 +121,16 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         }
 
         String firstName = (message.getFrom() != null) ? message.getFrom().getFirstName() : "noName";
+        String mention;
+        if (message.getFrom() != null && message.getFrom().getUserName() != null
+                && !message.getFrom().getUserName().isEmpty()) {
+            mention = "@" + message.getFrom().getUserName();
+        } else if (message.getFrom() != null) {
+            mention = "<a href=\"tg://user?id=" + message.getFrom().getId() + "\">" + firstName + "</a>";
+        } else {
+            mention = firstName;
+        }
+
         String textToAdmin;
 
         if (message.hasPhoto()) {
@@ -130,14 +140,14 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
                     .orElse(null);
 
             String caption = message.getCaption() != null ? message.getCaption() : "";
-            textToAdmin = userChatId + " " + firstName + " прислал(а) картинку";
+            textToAdmin = userChatId + " " + mention + " прислал(а) картинку";
             if (!caption.isEmpty()) {
                 textToAdmin += " с текстом: " + caption;
             }
             forwardPhotoToAdmin(biggest, textToAdmin);
         } else if (message.hasText()) {
             String text = message.getText();
-            textToAdmin = userChatId + " " + firstName + ": " + text;
+            textToAdmin = userChatId + " " + mention + ": " + text;
             sendMessageToAdmin(textToAdmin, null);
         } else {
             log.info("Received message of unknown type from user: {}", userChatId);
@@ -163,7 +173,8 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             log.warn("Неверный формат исходного сообщения, отсутствует ID пользователя.");
             return;
         }
-        String potentialUserChatId = parts[0].trim();
+
+        String potentialUserChatId = parts[0].trim().replaceFirst("^#u", "");
         if (!potentialUserChatId.matches("-?\\d+")) {
             log.warn("Не удалось извлечь корректный chatId из сообщения: {}", potentialUserChatId);
             return;
@@ -220,7 +231,8 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
         try {
             SendMessage msg = SendMessage.builder()
                     .chatId(targetChatId)
-                    .text(text)
+                    .text(HASHTAG + text)
+                    .parseMode("HTML")
                     .build();
             tgClient.execute(msg);
         } catch (TelegramApiException e) {
@@ -237,7 +249,7 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             SendPhoto sendPhoto = SendPhoto.builder()
                     .chatId(targetChatId)
                     .photo(new InputFile(photo.getFileId()))
-                    .caption(caption)
+                    .caption(HASHTAG + caption)
                     .build();
             tgClient.execute(sendPhoto);
         } catch (TelegramApiException e) {
@@ -250,6 +262,7 @@ public class UserBot implements LongPollingSingleThreadUpdateConsumer {
             SendMessage msg = SendMessage.builder()
                     .chatId(userChatId)
                     .text(text)
+                    .parseMode("HTML")
                     .build();
             tgClient.execute(msg);
         } catch (TelegramApiException e) {
